@@ -71,7 +71,8 @@ module MeshFromPoints
           if in_polyline
             x = props[10].first.to_f
             y = props[20].first.to_f
-            geometry << { type: :polyline, layer: polyline_layer, x: x, y: y }
+            z = props[30].first.to_f rescue 0.0
+            geometry << { type: :polyline, layer: polyline_layer, x: x, y: y, z: z }
           end
 
         when 'SEQEND'
@@ -87,12 +88,26 @@ module MeshFromPoints
           in_polyline = false
           xs = props[10]
           ys = props[20]
+          elev = props[38].first.to_f rescue 0.0
           xs.each_with_index do |xv, idx|
-            geometry << { type: :polyline, layer: layer,
-                          x: xv.to_f, y: (ys[idx] || '0').to_f }
+            g = { type: :polyline, layer: layer,
+                  x: xv.to_f, y: (ys[idx] || '0').to_f }
+            g[:z] = elev
+            geometry << g
           end
 
-        when 'LINE', 'POINT', 'INSERT'
+        when 'LINE'
+          in_polyline = false
+          x1 = props[10].first.to_f
+          y1 = props[20].first.to_f
+          z1 = (props[30].first.to_f rescue 0.0)
+          x2 = (props[11].first.to_f rescue x1)
+          y2 = (props[21].first.to_f rescue y1)
+          z2 = (props[31].first.to_f rescue z1)
+          geometry << { type: :line_segment, layer: layer,
+                        x1: x1, y1: y1, z1: z1, x2: x2, y2: y2, z2: z2 }
+
+        when 'POINT', 'INSERT'
           in_polyline = false
           x = props[10].first.to_f
           y = props[20].first.to_f
@@ -118,9 +133,27 @@ module MeshFromPoints
 
       # Subtract centroid to handle large geodetic coordinates
       unless geometry.empty?
-        cx = geometry.sum { |g| g[:x] } / geometry.size.to_f
-        cy = geometry.sum { |g| g[:y] } / geometry.size.to_f
-        geometry.each { |g| g[:x] -= cx; g[:y] -= cy }
+        all_x, all_y = [], []
+        geometry.each do |g|
+          case g[:type]
+          when :line_segment
+            all_x << g[:x1] << g[:x2]
+            all_y << g[:y1] << g[:y2]
+          when :polyline, :arc, :point, :text
+            all_x << g[:x] if g.key?(:x)
+            all_y << g[:y] if g.key?(:y)
+          end
+        end
+        cx = all_x.empty? ? 0.0 : all_x.sum / all_x.size.to_f
+        cy = all_y.empty? ? 0.0 : all_y.sum / all_y.size.to_f
+        geometry.each do |g|
+          case g[:type]
+          when :line_segment
+            g[:x1] -= cx; g[:y1] -= cy; g[:x2] -= cx; g[:y2] -= cy
+          when :polyline, :arc, :point, :text
+            g[:x] -= cx if g.key?(:x); g[:y] -= cy if g.key?(:y)
+          end
+        end
         result[:centroid] = [cx, cy]
       end
 
