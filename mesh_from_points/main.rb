@@ -7,8 +7,9 @@ require_relative 'delaunay'
 require_relative 'dxf_parser'
 
 module MeshFromPoints
-  @dialog  = nil
-  @dxf_data = nil  # { layers:, geometry:, centroid: } from DxfParser.parse
+  @dialog           = nil
+  @dxf_data         = nil   # { layers:, geometry:, centroid: } from DxfParser.parse
+  @edge_count_cache = {}    # definition.name => Integer (memoised for component list)
 
   def self.dialog
     return @dialog if @dialog && @dialog.visible?
@@ -84,6 +85,38 @@ module MeshFromPoints
     # Open URL in system browser
     dlg.add_action_callback('open_url') do |_ctx, url|
       UI.openURL(url.to_s) if url && !url.empty?
+    end
+
+    # Return list of top-level ComponentInstances in active model
+    dlg.add_action_callback('get_model_components') do |_ctx|
+      model = Sketchup.active_model
+      next ([]).to_json unless model
+
+      begin
+        @edge_count_cache = {}  # invalidate on each refresh
+        result = model.entities
+                      .grep(Sketchup::ComponentInstance)
+                      .map { |ci| { name: ci.definition.name,
+                                    edge_count: count_edges_recursive(ci.definition) } }
+                      .uniq  { |h| h[:name] }
+                      .sort_by { |h| h[:name] }
+        result.to_json
+      rescue => e
+        ({ error: e.message }).to_json
+      end
+    end
+
+    # Build mesh from edge vertices of a ComponentInstance already in the model
+    dlg.add_action_callback('create_mesh_from_model') do |_ctx, json_str|
+      model = Sketchup.active_model
+      next ({ error: 'Нет активной модели' }).to_json unless model
+
+      begin
+        create_mesh_from_model_impl(model, json_str)
+      rescue => e
+        UI.messagebox("Ошибка (model mesh): #{e.message}")
+        ({ error: e.message }).to_json
+      end
     end
 
     # Create topo mesh in the active SketchUp model
@@ -220,6 +253,105 @@ module MeshFromPoints
 
     val = text.to_f
     neg ? -val : val
+  end
+
+  # Recursively count edges in a ComponentDefinition (memoised)
+  def self.count_edges_recursive(definition)
+    return @edge_count_cache[definition.name] if @edge_count_cache.key?(definition.name)
+
+    count = definition.entities.grep(Sketchup::Edge).size
+    definition.entities.grep(Sketchup::ComponentInstance).each do |inst|
+      count += count_edges_recursive(inst.definition)
+    end
+    @edge_count_cache[definition.name] = count
+    count
+  end
+
+  # Recursively collect [x, y, z] edge vertex positions in world coordinates
+  def self.collect_edge_points(definition, world_transform, out)
+    definition.entities.each do |ent|
+      case ent
+      when Sketchup::Edge
+        out << ent.start.position.transform(world_transform).to_a
+        out << ent.end.position.transform(world_transform).to_a
+      when Sketchup::ComponentInstance
+        collect_edge_points(ent.definition,
+                            world_transform * ent.transformation,
+                            out)
+      end
+    end
+  end
+
+  def self.create_mesh_from_model_impl(model, json_str)
+    payload         = JSON.parse(json_str.to_s)
+    comp_name       = payload['componentName'].to_s
+    mesh_name       = (payload['meshName'] || 'TopoMesh').to_s
+    mesh_layer_name = payload['meshLayer'].to_s
+
+    return ({ error: 'Не указано имя компонента' }).to_json if comp_name.empty?
+
+    comp_inst = model.entities
+                     .grep(Sketchup::ComponentInstance)
+                     .find { |ci| ci.definition.name == comp_name }
+    return ({ error: "Компонент '#{comp_name}' не найден" }).to_json unless comp_inst
+
+    # Collect all edge vertices with world-space coordinates
+    raw_points = []
+    collect_edge_points(comp_inst.definition, comp_inst.transformation, raw_points)
+    return ({ error: 'Нет рёбер в компоненте' }).to_json if raw_points.empty?
+
+    # Deduplicate by XY key (first Z wins — edges share vertices on the same contour)
+    seen   = {}
+    points = []
+    raw_points.each do |pt|
+      key = [pt[0].round(4), pt[1].round(4)]
+      unless seen.key?(key)
+        seen[key] = true
+        points << pt
+      end
+    end
+    return ({ error: "Недостаточно уникальных точек (#{points.size})" }).to_json if points.size < 3
+
+    # Warn user if the point count is very large
+    if points.size > 2_000
+      answer = UI.messagebox(
+        "Обнаружено #{points.size} уникальных точек.\n" \
+        "Триангуляция может занять длительное время (1–5 мин).\n\n" \
+        "Продолжить?",
+        MB_YESNO
+      )
+      return ({ error: 'Отменено пользователем' }).to_json if answer == IDNO
+    end
+
+    tris = MeshFromPoints::Delaunay.triangulate(points)
+    return ({ error: 'Триангуляция не дала результатов' }).to_json if tris.empty?
+
+    model.start_operation('Create Model Topo Mesh', true)
+
+    target_layer = nil
+    unless mesh_layer_name.empty?
+      target_layer = model.layers.find { |l| l.name == mesh_layer_name }
+      target_layer ||= model.layers.add(mesh_layer_name)
+    end
+
+    group = model.entities.add_group
+    group.name  = mesh_name
+    group.layer = target_layer if target_layer
+
+    pts = points.map { |x, y, z| Geom::Point3d.new(x, y, z) }
+    tris.each do |tri|
+      i, j, k = tri[0], tri[1], tri[2]
+      next if i.nil? || j.nil? || k.nil?
+      begin
+        face = group.entities.add_face(pts[i], pts[j], pts[k])
+        face.reverse! if face && face.normal.z < 0
+      rescue
+        # skip degenerate triangles
+      end
+    end
+
+    model.commit_operation
+    ({ ok: true, point_count: points.size, tri_count: tris.size }).to_json
   end
 
   def self.show_dialog

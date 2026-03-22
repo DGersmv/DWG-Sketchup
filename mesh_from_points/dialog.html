@@ -151,6 +151,32 @@
       background: #fff;
       font-size: 12px;
     }
+
+    /* Mode toggle */
+    .mode-toggle {
+      display: flex;
+      gap: 0;
+      margin-bottom: 12px;
+      border: 1px solid #ada9a4;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .mode-toggle label {
+      flex: 1;
+      text-align: center;
+      padding: 5px 6px;
+      font-size: 11px;
+      cursor: pointer;
+      background: #dcd9d4;
+      user-select: none;
+    }
+    .mode-toggle label.active {
+      background: #b8d4f0;
+      color: #1a3a5c;
+      font-weight: 600;
+    }
+    .mode-toggle label + label { border-left: 1px solid #ada9a4; }
+    .mode-toggle input[type="radio"] { display: none; }
   </style>
 
   <script>
@@ -344,11 +370,110 @@
       if (fn) fn(url);
     }
 
+    // ── Mode toggle ──────────────────────────────────────────────────────────
+
+    function onModeChange() {
+      var mode = document.querySelector('input[name="mode"]:checked').value;
+      var isDxf = (mode === 'dxf');
+
+      $('sectionDxf').style.display       = isDxf ? '' : 'none';
+      $('sectionDxfLayers').style.display = isDxf ? '' : 'none';
+      $('sectionModel').style.display     = isDxf ? 'none' : '';
+      $('rowRadius').style.display        = isDxf ? '' : 'none';
+
+      // Update label styles
+      document.querySelectorAll('.mode-toggle label').forEach(function(lbl) {
+        lbl.classList.toggle('active', lbl.querySelector('input').checked);
+      });
+
+      if (!isDxf) refreshModelComponents();
+      setInfo(isDxf ? 'Загрузите DXF файл для начала работы.'
+                    : 'Выберите компонент из модели SketchUp.', '');
+    }
+
+    // ── Model component list ─────────────────────────────────────────────────
+
+    function refreshModelComponents() {
+      var fn = ensureSketchUp('get_model_components');
+      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
+      $('modelCompInfo').textContent = 'Загрузка…';
+
+      fn().then(function(jsonStr) {
+        var list;
+        try { list = JSON.parse(jsonStr); } catch(e) {
+          setInfo('Ошибка парсинга ответа', 'info-err'); return;
+        }
+        if (list.error) { setInfo('Ошибка: ' + list.error, 'info-err'); return; }
+
+        var sel = $('modelCompSelect');
+        sel.innerHTML = '';
+        if (!list.length) {
+          var opt = document.createElement('option');
+          opt.value = ''; opt.textContent = '— нет компонентов в модели —';
+          sel.appendChild(opt);
+          $('modelCompInfo').textContent = '';
+          return;
+        }
+        list.forEach(function(item) {
+          var opt = document.createElement('option');
+          opt.value = item.name;
+          opt.textContent = item.name;
+          opt.dataset.edgeCount = item.edge_count;
+          sel.appendChild(opt);
+        });
+        onModelCompChange();
+      }).catch(function(e) { setInfo('Ошибка: ' + e, 'info-err'); });
+    }
+
+    function onModelCompChange() {
+      var sel = $('modelCompSelect');
+      var opt = sel.options[sel.selectedIndex];
+      if (!opt || !opt.value) { $('modelCompInfo').textContent = ''; return; }
+      var ec = opt.dataset.edgeCount || '?';
+      $('modelCompInfo').textContent = 'Рёбер в компоненте: ' + ec;
+    }
+
+    // ── Create dispatcher ────────────────────────────────────────────────────
+
+    function onCreateMesh() {
+      var mode = document.querySelector('input[name="mode"]:checked').value;
+      if (mode === 'dxf') createTopoMesh();
+      else                createMeshFromModel();
+    }
+
+    function createMeshFromModel() {
+      var fn = ensureSketchUp('create_mesh_from_model');
+      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
+
+      var compName  = $('modelCompSelect').value;
+      var meshLayer = $('meshLayerSelect').value;
+      var meshName  = $('meshName').value.trim() || 'TopoMesh';
+
+      if (!compName) { setInfo('Выберите компонент', 'info-err'); return; }
+
+      setInfo('Сбор точек из компонента…', '');
+      $('btnCreate').disabled = true;
+
+      fn(JSON.stringify({ componentName: compName, meshName: meshName, meshLayer: meshLayer }))
+        .then(function(jsonStr) {
+          var result;
+          try { result = JSON.parse(jsonStr); } catch(e) { result = {}; }
+          if (result.ok) {
+            setInfo('Mesh создан: ' + result.point_count + ' точек, ' +
+                    result.tri_count + ' треугольников.', 'info-ok');
+          } else {
+            setInfo('Ошибка: ' + (result.error || 'неизвестная ошибка'), 'info-err');
+          }
+        })
+        .catch(function(e) { setInfo('Ошибка: ' + e, 'info-err'); })
+        .finally(function() { $('btnCreate').disabled = false; });
+    }
+
     // ── Init ─────────────────────────────────────────────────────────────────
 
     window.addEventListener('load', function() {
       populateLayerDropdowns([]);
-      setInfo('Загрузите DXF файл для начала работы.', '');
+      onModeChange();
     });
   </script>
 </head>
@@ -362,6 +487,31 @@
     <h1>DXF Topo Mesh <span style="font-size:10px;color:#777;font-weight:normal">v2.0</span></h1>
   </div>
 
+  <!-- Mode toggle -->
+  <div class="mode-toggle">
+    <label class="active">
+      <input type="radio" name="mode" value="dxf" checked onchange="onModeChange()">
+      <span>DXF файл</span>
+    </label>
+    <label>
+      <input type="radio" name="mode" value="model" onchange="onModeChange()">
+      <span>Из модели SketchUp</span>
+    </label>
+  </div>
+
+<div id="sectionModel" style="display:none;" class="section">
+  <div class="section-title">Компонент SketchUp</div>
+  <div class="form-row">
+    <label for="modelCompSelect">Компонент:</label>
+    <select id="modelCompSelect" onchange="onModelCompChange()"></select>
+  </div>
+  <button class="btn" onclick="refreshModelComponents()" style="margin-top:3px;">
+    Обновить список
+  </button>
+  <div id="modelCompInfo" style="font-size:11px;color:#555;margin-top:5px;min-height:15px;"></div>
+</div>
+
+<div id="sectionDxf">
   <!-- DXF File Section -->
   <div class="section">
     <div class="section-title">DXF Файл</div>
@@ -417,6 +567,9 @@
     </details>
   </div>
 
+</div><!-- /sectionDxf -->
+
+<div id="sectionDxfLayers">
   <div class="divider"></div>
 
   <!-- Layer Selection -->
@@ -458,19 +611,22 @@
   </div>
 
   <div class="divider"></div>
+</div><!-- /sectionDxfLayers -->
 
   <!-- Mesh parameters -->
   <div class="section">
     <div class="section-title">Параметры Mesh</div>
 
-    <div class="units-row">
-      <label for="radius">Радиус поиска:</label>
-      <input type="number" id="radius" value="5" min="0.001" step="0.5">
-      <select id="units" title="Единицы координат DXF">
-        <option value="м"  selected>м</option>
-        <option value="мм">мм</option>
-        <option value="см">см</option>
-      </select>
+    <div id="rowRadius">
+      <div class="units-row">
+        <label for="radius">Радиус поиска:</label>
+        <input type="number" id="radius" value="5" min="0.001" step="0.5">
+        <select id="units" title="Единицы координат DXF">
+          <option value="м"  selected>м</option>
+          <option value="мм">мм</option>
+          <option value="см">см</option>
+        </select>
+      </div>
     </div>
 
     <div class="form-row">
@@ -486,7 +642,7 @@
   <div class="divider"></div>
 
   <div class="section">
-    <button id="btnCreate" class="btn btn-primary" onclick="createTopoMesh()">
+    <button id="btnCreate" class="btn btn-primary" onclick="onCreateMesh()">
       Создать Topo Mesh
     </button>
   </div>
