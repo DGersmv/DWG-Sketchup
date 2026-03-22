@@ -1,0 +1,29 @@
+# Build outputs
+Debug_x64/
+Release_x64/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+x64/
+
+# Ruby
+*.gem
+.bundle/
+vendor/bundle/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~

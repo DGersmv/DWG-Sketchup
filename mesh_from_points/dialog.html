@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>DWG Mesh v1.1 — Топо Mesh из DWG</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #efefef;
+      margin: 0;
+      color: #2f2f2f;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .logo {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      display: block;
+    }
+    .logo img {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    h1 {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      flex: 1;
+    }
+    .section { margin-bottom: 10px; }
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      font-size: 11px;
+      color: #54524f;
+    }
+    .divider {
+      height: 1px;
+      background: #c7c3bd;
+      margin: 8px 0;
+    }
+    .form-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+    .form-row label {
+      width: 155px;
+      flex-shrink: 0;
+      font-size: 11px;
+      color: #3a3a3a;
+    }
+    .form-row select,
+    .form-row input[type="number"],
+    .form-row input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      width: 0;
+      padding: 3px 5px;
+      border: 1px solid #ada9a4;
+      border-radius: 2px;
+      background: #ffffff;
+      font-size: 12px;
+    }
+    .sep-group {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .sep-group label { font-size: 12px; cursor: pointer; width: auto; }
+    .preview-box {
+      flex: 1;
+      padding: 3px 6px;
+      border: 1px solid #c0beb9;
+      background: #f9f8f6;
+      font-size: 11px;
+      min-height: 22px;
+      color: #444;
+      font-family: monospace;
+    }
+    .preview-ok  { color: #2a6e00; font-weight: 600; }
+    .preview-err { color: #900; }
+    .btn {
+      display: inline-block;
+      padding: 4px 10px;
+      border: 1px solid #a8a5a2;
+      border-radius: 2px;
+      background: #dcd9d4;
+      color: #2f2f2f;
+      font-size: 12px;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 #f5f4f2;
+      text-align: center;
+      width: 100%;
+    }
+    .btn:hover   { background: #e7e4de; }
+    .btn:active  { background: #cac7c2; }
+    .btn:disabled { background: #e2e0de; color: #999; cursor: default; }
+    .btn-primary { font-weight: 600; }
+    .info-box {
+      padding: 6px 7px;
+      border: 1px solid #c0beb9;
+      background: #f9f8f6;
+      font-size: 11px;
+      line-height: 1.5;
+      min-height: 24px;
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+    .info-ok  { color: #2a6e00; font-weight: 600; }
+    .info-err { color: #900; font-weight: 600; }
+  </style>
+
+  <script>
+    function $(id) { return document.getElementById(id); }
+
+    function ensureSketchUp(fnName) {
+      const su = window.sketchup;
+      if (!su || typeof su[fnName] !== 'function') return null;
+      return su[fnName].bind(su);
+    }
+
+    function setInfo(text, cls) {
+      const box = $('infoBox');
+      if (!box) return;
+      box.textContent = text;
+      box.className = 'info-box' + (cls ? ' ' + cls : '');
+    }
+
+    async function init() {
+      setInfo('Инициализация...', '');
+      const fn = ensureSketchUp('get_layer_list');
+      if (!fn) {
+        setInfo('SketchUp bridge недоступен', 'info-err');
+        return;
+      }
+
+      fn().then(function(layersData) {
+        if (!Array.isArray(layersData)) {
+          setInfo('Ошибка: get_layer_list вернул не массив', 'info-err');
+          return;
+        }
+        const layers = layersData
+          .filter(function(it) { return Array.isArray(it) && it.length >= 2; })
+          .map(function(it) { return { name: String(it[0] || ''), index: Number(it[1]) }; })
+          .filter(function(x) { return x.name.length > 0 && !isNaN(x.index); });
+
+        fillSelect('arcLayerSelect',   layers, function(l) { return l.index; }, function(l) { return l.name; });
+        fillSelect('textLayerSelect',  layers, function(l) { return l.index; }, function(l) { return l.name; });
+        fillSelect('meshLayerSelect',  layers, function(l) { return l.index; }, function(l) { return l.name; });
+        setInfo('', '');
+      }).catch(function(e) {
+        setInfo('Ошибка загрузки слоёв: ' + e, 'info-err');
+      });
+    }
+
+    function fillSelect(id, items, valFn, textFn) {
+      const sel = $(id);
+      if (!sel) return;
+      sel.innerHTML = '';
+      items.forEach(function(item) {
+        const opt = document.createElement('option');
+        opt.value = valFn(item);
+        opt.textContent = textFn(item);
+        sel.appendChild(opt);
+      });
+    }
+
+    function loadSample() {
+      const fn = ensureSketchUp('get_sample_elevation_text');
+      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
+
+      const textLayerIdx = parseInt($('textLayerSelect').value, 10);
+      if (isNaN(textLayerIdx)) return;
+
+      $('sampleRaw').textContent = '...';
+      $('sampleResult').textContent = '';
+      $('sampleResult').className = '';
+      setInfo('Загрузка...', '');
+
+      fn(textLayerIdx).then(function(sample) {
+        $('sampleRaw').textContent = sample || '(нет данных)';
+        updatePreview(sample);
+        const fnStats = ensureSketchUp('get_layer_stats');
+        if (fnStats) {
+          const arcLayerIdx = parseInt($('arcLayerSelect').value, 10);
+          const sep = document.querySelector('input[name="sep"]:checked');
+          const sepVal = sep ? sep.value : '.';
+          const radius = parseFloat($('radius').value) || 3000;
+          fnStats(JSON.stringify({ arcLayerIdx: arcLayerIdx, textLayerIdx: textLayerIdx, sep: sepVal, radius: radius }))
+            .then(function(stats) { setInfo(stats || '', ''); })
+            .catch(function() { setInfo('', ''); });
+        } else {
+          setInfo('', '');
+        }
+      }).catch(function(e) {
+        $('sampleRaw').textContent = '(ошибка)';
+        setInfo('Ошибка: ' + e, 'info-err');
+      });
+    }
+
+    function updatePreview(rawText) {
+      if (!rawText || rawText === '...' || rawText === '(ошибка)' || rawText === '(нет данных)') return;
+      const sepEl = document.querySelector('input[name="sep"]:checked');
+      const sep = sepEl ? sepEl.value : '.';
+      const val = parseElevation(rawText, sep);
+      const box = $('sampleResult');
+      if (val !== null) {
+        box.textContent = '→ ' + val.toFixed(3) + ' м';
+        box.className = 'preview-ok';
+      } else {
+        box.textContent = '→ не распознано';
+        box.className = 'preview-err';
+      }
+    }
+
+    function parseElevation(text, sep) {
+      text = String(text || '').trim();
+      var neg = false;
+      if (text.charAt(0) === '+') text = text.slice(1);
+      else if (text.charAt(0) === '-') { neg = true; text = text.slice(1); }
+      if (sep === ',') text = text.replace(',', '.');
+      var val = parseFloat(text);
+      if (isNaN(val)) return null;
+      return neg ? -val : val;
+    }
+
+    function onLayerChange() { loadSample(); }
+    function onTextLayerChange() { loadSample(); }
+    function onSepChange() {
+      var raw = $('sampleRaw').textContent;
+      if (raw && raw !== '...' && raw !== '(ошибка)' && raw !== '(нажмите «Загрузить»)' && raw !== '(нет данных)')
+        updatePreview(raw);
+    }
+
+    function createTopoMesh() {
+      const fn = ensureSketchUp('create_topo_mesh');
+      if (!fn) { setInfo('SketchUp.create_topo_mesh недоступен', 'info-err'); return; }
+
+      const arcLayerIdx  = parseInt($('arcLayerSelect').value,  10);
+      const textLayerIdx = parseInt($('textLayerSelect').value, 10);
+      const meshLayer    = parseInt($('meshLayerSelect').value, 10);
+      const radius       = parseFloat($('radius').value)        || 3000;
+      const sepEl        = document.querySelector('input[name="sep"]:checked');
+      const sep          = sepEl ? sepEl.value : '.';
+
+      if (isNaN(arcLayerIdx))  { setInfo('Выберите слой для дуг и полилиний', 'info-err'); return; }
+      if (isNaN(textLayerIdx)) { setInfo('Выберите слой с текстом отметок', 'info-err'); return; }
+      if (radius <= 0)         { setInfo('Радиус поиска должен быть > 0', 'info-err'); return; }
+
+      const payload = JSON.stringify({
+        arcLayerIdx:  arcLayerIdx,
+        textLayerIdx: textLayerIdx,
+        radius:       radius,
+        separator:    sep,
+        mFactor:      1,
+        mmFactor:     1000,
+        meshName:     'TopoMesh',
+        meshLayer:    isNaN(meshLayer) ? 0 : meshLayer
+      });
+
+      setInfo('Создание Mesh...');
+      $('btnCreate').disabled = true;
+
+      fn(payload).then(function(ok) {
+        setInfo(ok ? 'Mesh создан успешно!' : 'Не удалось создать Mesh. Проверьте слой и параметры.', ok ? 'info-ok' : 'info-err');
+      }).catch(function(e) {
+        setInfo('Ошибка: ' + e, 'info-err');
+      }).finally(function() {
+        $('btnCreate').disabled = false;
+      });
+    }
+
+    window.addEventListener('load', init);
+  </script>
+</head>
+<body>
+  <div class="header-row">
+    <div class="logo">
+      <img src="images/logo.svg" alt="DWG Mesh" title="DWG Mesh">
+    </div>
+    <h1>Топо Mesh из DWG <span style="font-size:10px;color:#777;font-weight:normal">v1.1</span></h1>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Источник</div>
+    <div class="form-row">
+      <label for="arcLayerSelect">Слой для дуг и полилиний:</label>
+      <select id="arcLayerSelect" onchange="onLayerChange()"></select>
+    </div>
+    <div class="form-row">
+      <label for="textLayerSelect">Слой с текстом отметок:</label>
+      <select id="textLayerSelect" onchange="onTextLayerChange()"></select>
+    </div>
+    <div class="form-row">
+      <label for="radius">Радиус поиска текста (мм):</label>
+      <input type="number" id="radius" value="3000" min="1" step="100">
+    </div>
+    <button class="btn" onclick="loadSample()" style="margin-top:3px;">
+      Загрузить пример с слоя
+    </button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-title">Парсинг формата</div>
+    <div class="form-row">
+      <label>Пример текста:</label>
+      <span id="sampleRaw" class="preview-box">(нажмите «Загрузить»)</span>
+    </div>
+    <div class="form-row">
+      <label>Разделитель:</label>
+      <div class="sep-group">
+        <label><input type="radio" name="sep" value="." checked onchange="onSepChange()"> точка &nbsp;<code>14.200</code></label>
+        <label><input type="radio" name="sep" value="," onchange="onSepChange()"> запятая &nbsp;<code>14,200</code></label>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Результат:</label>
+      <span id="sampleResult" style="flex:1; font-size:12px;"></span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section-title">Параметры Mesh</div>
+    <div class="form-row">
+      <label for="meshLayerSelect">Слой для Mesh:</label>
+      <select id="meshLayerSelect"></select>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <button id="btnCreate" class="btn btn-primary" onclick="createTopoMesh()">
+      Создать Topo Mesh
+    </button>
+  </div>
+
+  <div id="infoBox" class="info-box">
+    Выберите слои для дуг и текста, загрузите пример, проверьте парсинг и нажмите «Создать».
+  </div>
+
+</body>
+</html>

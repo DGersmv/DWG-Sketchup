@@ -1,0 +1,11 @@
+require:
+  - sketchup-api-stubs
+
+include:
+  - "**/*.rb"
+
+exclude:
+  - vendor/**/*
+
+reporters:
+  - rubocop

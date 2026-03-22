@@ -1,0 +1,6 @@
+; dwgmesh_importer.def
+
+LIBRARY      "dwgmesh2skp"
+
+EXPORTS
+    GetSketchUpModelImporterInterface

@@ -1,0 +1,17 @@
+require: rubocop-sketchup
+
+AllCops:
+  DisabledByDefault: true
+  NewCops: enable
+  SketchUp:
+    SourcePath: .
+    TargetSketchUpVersion: 2024
+
+SketchupDeprecations:
+  Enabled: true
+SketchupRequirements:
+  Enabled: true
+SketchupSuggestions:
+  Enabled: true
+SketchupBugs:
+  Enabled: true
