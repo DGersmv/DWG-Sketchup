@@ -381,56 +381,41 @@
       $('sectionModel').style.display     = isDxf ? 'none' : '';
       $('rowRadius').style.display        = isDxf ? '' : 'none';
 
-      // Update label styles
       document.querySelectorAll('.mode-toggle label').forEach(function(lbl) {
         lbl.classList.toggle('active', lbl.querySelector('input').checked);
       });
 
-      if (!isDxf) refreshModelComponents();
-      setInfo(isDxf ? 'Загрузите DXF файл для начала работы.'
-                    : 'Выберите компонент из модели SketchUp.', '');
+      if (!isDxf) refreshSelection();
+      else setInfo('Загрузите DXF файл для начала работы.', '');
     }
 
-    // ── Model component list ─────────────────────────────────────────────────
+    // ── Selection info ───────────────────────────────────────────────────────
 
-    function refreshModelComponents() {
-      var fn = ensureSketchUp('get_model_components');
+    function refreshSelection() {
+      var fn = ensureSketchUp('get_selection_info');
       if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
-      $('modelCompInfo').textContent = 'Загрузка…';
+      $('selectionList').textContent = 'Загрузка…';
 
       fn().then(function(jsonStr) {
-        var list;
-        try { list = JSON.parse(jsonStr); } catch(e) {
+        var result;
+        try { result = JSON.parse(jsonStr); } catch(e) {
           setInfo('Ошибка парсинга ответа', 'info-err'); return;
         }
-        if (list.error) { setInfo('Ошибка: ' + list.error, 'info-err'); return; }
+        if (result.error) { setInfo('Ошибка: ' + result.error, 'info-err'); return; }
 
-        var sel = $('modelCompSelect');
-        sel.innerHTML = '';
-        if (!list.length) {
-          var opt = document.createElement('option');
-          opt.value = ''; opt.textContent = '— нет компонентов в модели —';
-          sel.appendChild(opt);
-          $('modelCompInfo').textContent = '';
+        var comps = result.components || [];
+        if (!comps.length) {
+          $('selectionList').textContent = '(нет выделенных компонентов)';
+          setInfo('Выделите компонент(ы) в модели SketchUp.', '');
           return;
         }
-        list.forEach(function(item) {
-          var opt = document.createElement('option');
-          opt.value = item.name;
-          opt.textContent = item.name;
-          opt.dataset.edgeCount = item.edge_count;
-          sel.appendChild(opt);
+        var lines = comps.map(function(c) {
+          return '• ' + c.name + '  —  рёбер: ' + c.edge_count;
         });
-        onModelCompChange();
+        $('selectionList').textContent = lines.join('\n');
+        var totalEdges = comps.reduce(function(s, c) { return s + c.edge_count; }, 0);
+        setInfo('Выделено компонентов: ' + comps.length + '  |  Рёбер всего: ' + totalEdges, 'info-ok');
       }).catch(function(e) { setInfo('Ошибка: ' + e, 'info-err'); });
-    }
-
-    function onModelCompChange() {
-      var sel = $('modelCompSelect');
-      var opt = sel.options[sel.selectedIndex];
-      if (!opt || !opt.value) { $('modelCompInfo').textContent = ''; return; }
-      var ec = opt.dataset.edgeCount || '?';
-      $('modelCompInfo').textContent = 'Рёбер в компоненте: ' + ec;
     }
 
     // ── Create dispatcher ────────────────────────────────────────────────────
@@ -445,16 +430,13 @@
       var fn = ensureSketchUp('create_mesh_from_model');
       if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
 
-      var compName  = $('modelCompSelect').value;
       var meshLayer = $('meshLayerSelect').value;
       var meshName  = $('meshName').value.trim() || 'TopoMesh';
 
-      if (!compName) { setInfo('Выберите компонент', 'info-err'); return; }
-
-      setInfo('Сбор точек из компонента…', '');
+      setInfo('Сбор точек из выделения…', '');
       $('btnCreate').disabled = true;
 
-      fn(JSON.stringify({ componentName: compName, meshName: meshName, meshLayer: meshLayer }))
+      fn(JSON.stringify({ meshName: meshName, meshLayer: meshLayer }))
         .then(function(jsonStr) {
           var result;
           try { result = JSON.parse(jsonStr); } catch(e) { result = {}; }
@@ -500,15 +482,23 @@
   </div>
 
 <div id="sectionModel" style="display:none;" class="section">
-  <div class="section-title">Компонент SketchUp</div>
-  <div class="form-row">
-    <label for="modelCompSelect">Компонент:</label>
-    <select id="modelCompSelect" onchange="onModelCompChange()"></select>
-  </div>
-  <button class="btn" onclick="refreshModelComponents()" style="margin-top:3px;">
-    Обновить список
+  <div class="section-title">Из выделения SketchUp</div>
+  <p style="font-size:11px;color:#555;margin:0 0 6px;">
+    Выделите компонент(ы) в модели, затем нажмите «Обновить».
+  </p>
+  <button class="btn" onclick="refreshSelection()" style="margin-bottom:6px;">
+    Обновить из выделения
   </button>
-  <div id="modelCompInfo" style="font-size:11px;color:#555;margin-top:5px;min-height:15px;"></div>
+  <div id="selectionList" style="
+    min-height:32px;
+    padding:5px 7px;
+    border:1px solid #c0beb9;
+    background:#f9f8f6;
+    font-size:11px;
+    font-family:monospace;
+    color:#444;
+    white-space:pre-wrap;
+  ">(нет выделения)</div>
 </div>
 
 <div id="sectionDxf">

@@ -87,32 +87,34 @@ module MeshFromPoints
       UI.openURL(url.to_s) if url && !url.empty?
     end
 
-    # Return list of top-level ComponentInstances in active model
-    dlg.add_action_callback('get_model_components') do |_ctx|
+    # Return info about currently selected ComponentInstances
+    dlg.add_action_callback('get_selection_info') do |_ctx|
       model = Sketchup.active_model
-      next ([]).to_json unless model
+      next ({ components: [] }).to_json unless model
 
       begin
-        @edge_count_cache = {}  # invalidate on each refresh
-        result = model.entities
-                      .grep(Sketchup::ComponentInstance)
-                      .map { |ci| { name: ci.definition.name,
-                                    edge_count: count_edges_recursive(ci.definition) } }
-                      .uniq  { |h| h[:name] }
-                      .sort_by { |h| h[:name] }
-        result.to_json
+        @edge_count_cache = {}
+        comps = model.selection.grep(Sketchup::ComponentInstance)
+        result = comps.map do |ci|
+          { name: ci.definition.name,
+            edge_count: count_edges_recursive(ci.definition) }
+        end
+        ({ components: result }).to_json
       rescue => e
         ({ error: e.message }).to_json
       end
     end
 
-    # Build mesh from edge vertices of a ComponentInstance already in the model
+    # Build mesh from edge vertices of currently selected ComponentInstance(s)
     dlg.add_action_callback('create_mesh_from_model') do |_ctx, json_str|
       model = Sketchup.active_model
       next ({ error: 'Нет активной модели' }).to_json unless model
 
+      comps = model.selection.grep(Sketchup::ComponentInstance)
+      next ({ error: 'Выделите компонент(ы) в модели SketchUp' }).to_json if comps.empty?
+
       begin
-        create_mesh_from_model_impl(model, json_str)
+        create_mesh_from_model_impl(model, json_str, comps)
       rescue => e
         UI.messagebox("Ошибка (model mesh): #{e.message}")
         ({ error: e.message }).to_json
@@ -282,22 +284,17 @@ module MeshFromPoints
     end
   end
 
-  def self.create_mesh_from_model_impl(model, json_str)
+  # comps — array of Sketchup::ComponentInstance from current selection
+  def self.create_mesh_from_model_impl(model, json_str, comps)
     payload         = JSON.parse(json_str.to_s)
-    comp_name       = payload['componentName'].to_s
     mesh_name       = (payload['meshName'] || 'TopoMesh').to_s
     mesh_layer_name = payload['meshLayer'].to_s
 
-    return ({ error: 'Не указано имя компонента' }).to_json if comp_name.empty?
-
-    comp_inst = model.entities
-                     .grep(Sketchup::ComponentInstance)
-                     .find { |ci| ci.definition.name == comp_name }
-    return ({ error: "Компонент '#{comp_name}' не найден" }).to_json unless comp_inst
-
-    # Collect all edge vertices with world-space coordinates
+    # Collect edge vertices from all selected components
     raw_points = []
-    collect_edge_points(comp_inst.definition, comp_inst.transformation, raw_points)
+    comps.each do |ci|
+      collect_edge_points(ci.definition, ci.transformation, raw_points)
+    end
     return ({ error: 'Нет рёбер в компоненте' }).to_json if raw_points.empty?
 
     # Deduplicate by XY key (first Z wins — edges share vertices on the same contour)
