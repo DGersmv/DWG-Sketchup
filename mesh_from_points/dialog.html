@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>DWG Mesh v1.1 — Топо Mesh из DWG</title>
+  <title>DXF Topo Mesh v2.0</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -20,17 +20,8 @@
       gap: 10px;
       margin-bottom: 12px;
     }
-    .logo {
-      flex-shrink: 0;
-      width: 36px;
-      height: 36px;
-      display: block;
-    }
-    .logo img {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
+    .logo { flex-shrink: 0; width: 36px; height: 36px; display: block; }
+    .logo img { width: 100%; height: 100%; display: block; }
     h1 {
       font-size: 13px;
       font-weight: 600;
@@ -47,11 +38,7 @@
       font-size: 11px;
       color: #54524f;
     }
-    .divider {
-      height: 1px;
-      background: #c7c3bd;
-      margin: 8px 0;
-    }
+    .divider { height: 1px; background: #c7c3bd; margin: 8px 0; }
     .form-row {
       display: flex;
       align-items: center;
@@ -69,18 +56,13 @@
     .form-row input[type="text"] {
       flex: 1;
       min-width: 0;
-      width: 0;
       padding: 3px 5px;
       border: 1px solid #ada9a4;
       border-radius: 2px;
       background: #ffffff;
       font-size: 12px;
     }
-    .sep-group {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
+    .sep-group { display: flex; gap: 12px; align-items: center; }
     .sep-group label { font-size: 12px; cursor: pointer; width: auto; }
     .preview-box {
       flex: 1;
@@ -91,6 +73,9 @@
       min-height: 22px;
       color: #444;
       font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .preview-ok  { color: #2a6e00; font-weight: 600; }
     .preview-err { color: #900; }
@@ -123,102 +108,171 @@
     }
     .info-ok  { color: #2a6e00; font-weight: 600; }
     .info-err { color: #900; font-weight: 600; }
+
+    /* Collapsible help */
+    details > summary { list-style: none; cursor: pointer; user-select: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary .section-title {
+      display: inline;
+      margin-bottom: 0;
+    }
+    details > summary .toggle-arrow { font-size: 10px; color: #777; margin-left: 4px; }
+    .help-body {
+      margin-top: 6px;
+      padding: 7px 9px;
+      background: #f4f2ee;
+      border: 1px solid #d0cdc8;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+    .help-body ol { margin: 4px 0 6px 16px; padding: 0; }
+    .help-body p  { margin: 4px 0; }
+    .help-body a  { color: #24568c; text-decoration: none; }
+    .help-body a:hover { text-decoration: underline; }
+    .help-tool { margin-top: 6px; }
+    .help-tool strong { color: #333; }
+    .help-note { color: #666; font-size: 10px; margin-top: 5px; }
+
+    .units-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .units-row label { width: 155px; flex-shrink: 0; font-size: 11px; color: #3a3a3a; }
+    .units-row input[type="number"] {
+      flex: 0 0 80px;
+      padding: 3px 5px;
+      border: 1px solid #ada9a4;
+      border-radius: 2px;
+      background: #fff;
+      font-size: 12px;
+    }
+    .units-row select {
+      flex: 0 0 55px;
+      padding: 3px 4px;
+      border: 1px solid #ada9a4;
+      border-radius: 2px;
+      background: #fff;
+      font-size: 12px;
+    }
   </style>
 
   <script>
     function $(id) { return document.getElementById(id); }
 
     function ensureSketchUp(fnName) {
-      const su = window.sketchup;
+      var su = window.sketchup;
       if (!su || typeof su[fnName] !== 'function') return null;
       return su[fnName].bind(su);
     }
 
     function setInfo(text, cls) {
-      const box = $('infoBox');
+      var box = $('infoBox');
       if (!box) return;
       box.textContent = text;
       box.className = 'info-box' + (cls ? ' ' + cls : '');
     }
 
-    async function init() {
-      setInfo('Инициализация...', '');
-      const fn = ensureSketchUp('get_layer_list');
-      if (!fn) {
-        setInfo('SketchUp bridge недоступен', 'info-err');
-        return;
-      }
+    // ── File picker ──────────────────────────────────────────────────────────
 
-      fn().then(function(layersData) {
-        if (!Array.isArray(layersData)) {
-          setInfo('Ошибка: get_layer_list вернул не массив', 'info-err');
+    function openDxfFile() {
+      var fn = ensureSketchUp('open_dxf_file');
+      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
+      setInfo('Открытие файла…', '');
+
+      fn().then(function(jsonStr) {
+        var result;
+        try { result = JSON.parse(jsonStr); } catch(e) { setInfo('Ошибка парсинга ответа', 'info-err'); return; }
+        if (result.error) {
+          if (result.error !== 'cancelled') setInfo('Ошибка: ' + result.error, 'info-err');
+          else setInfo('', '');
           return;
         }
-        const layers = layersData
-          .filter(function(it) { return Array.isArray(it) && it.length >= 2; })
-          .map(function(it) { return { name: String(it[0] || ''), index: Number(it[1]) }; })
-          .filter(function(x) { return x.name.length > 0 && !isNaN(x.index); });
 
-        fillSelect('arcLayerSelect',   layers, function(l) { return l.index; }, function(l) { return l.name; });
-        fillSelect('textLayerSelect',  layers, function(l) { return l.index; }, function(l) { return l.name; });
-        fillSelect('meshLayerSelect',  layers, function(l) { return l.index; }, function(l) { return l.name; });
-        setInfo('', '');
+        // Show short filename in the path box
+        var fname = result.path.replace(/.*[/\\]/, '');
+        $('dxfPathBox').textContent = fname;
+        $('dxfPathBox').title = result.path;
+
+        populateLayerDropdowns(result.layers || []);
+
+        var cx = (result.centroid[0] || 0).toFixed(2);
+        var cy = (result.centroid[1] || 0).toFixed(2);
+        setInfo('Файл загружен: ' + fname + '\nЦентроид: (' + cx + '; ' + cy + ')', 'info-ok');
+
+        onTextLayerChange();  // load sample text immediately
       }).catch(function(e) {
-        setInfo('Ошибка загрузки слоёв: ' + e, 'info-err');
-      });
-    }
-
-    function fillSelect(id, items, valFn, textFn) {
-      const sel = $(id);
-      if (!sel) return;
-      sel.innerHTML = '';
-      items.forEach(function(item) {
-        const opt = document.createElement('option');
-        opt.value = valFn(item);
-        opt.textContent = textFn(item);
-        sel.appendChild(opt);
-      });
-    }
-
-    function loadSample() {
-      const fn = ensureSketchUp('get_sample_elevation_text');
-      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
-
-      const textLayerIdx = parseInt($('textLayerSelect').value, 10);
-      if (isNaN(textLayerIdx)) return;
-
-      $('sampleRaw').textContent = '...';
-      $('sampleResult').textContent = '';
-      $('sampleResult').className = '';
-      setInfo('Загрузка...', '');
-
-      fn(textLayerIdx).then(function(sample) {
-        $('sampleRaw').textContent = sample || '(нет данных)';
-        updatePreview(sample);
-        const fnStats = ensureSketchUp('get_layer_stats');
-        if (fnStats) {
-          const arcLayerIdx = parseInt($('arcLayerSelect').value, 10);
-          const sep = document.querySelector('input[name="sep"]:checked');
-          const sepVal = sep ? sep.value : '.';
-          const radius = parseFloat($('radius').value) || 3000;
-          fnStats(JSON.stringify({ arcLayerIdx: arcLayerIdx, textLayerIdx: textLayerIdx, sep: sepVal, radius: radius }))
-            .then(function(stats) { setInfo(stats || '', ''); })
-            .catch(function() { setInfo('', ''); });
-        } else {
-          setInfo('', '');
-        }
-      }).catch(function(e) {
-        $('sampleRaw').textContent = '(ошибка)';
         setInfo('Ошибка: ' + e, 'info-err');
       });
     }
 
+    function populateLayerDropdowns(layers) {
+      ['arcLayerSelect', 'textLayerSelect', 'meshLayerSelect'].forEach(function(id) {
+        var sel = $(id);
+        if (!sel) return;
+        sel.innerHTML = '';
+        if (!layers.length) {
+          var opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '— загрузите DXF —';
+          sel.appendChild(opt);
+          return;
+        }
+        layers.forEach(function(name) {
+          var opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+      });
+    }
+
+    // ── Layer stat refresh ───────────────────────────────────────────────────
+
+    function refreshStats() {
+      var fn = ensureSketchUp('get_layer_stats');
+      if (!fn) return;
+      var arcLayer  = $('arcLayerSelect').value;
+      var textLayer = $('textLayerSelect').value;
+      if (!arcLayer || !textLayer) return;
+
+      fn(JSON.stringify({ arcLayer: arcLayer, textLayer: textLayer }))
+        .then(function(jsonStr) {
+          var s;
+          try { s = JSON.parse(jsonStr); } catch(e) { return; }
+          $('statsBox').textContent = 'Точек: ' + s.arcs + '  Отметок: ' + s.texts;
+        })
+        .catch(function() {});
+    }
+
+    // ── Text sample preview ──────────────────────────────────────────────────
+
+    function onLayerChange()     { refreshStats(); }
+    function onTextLayerChange() { loadTextSample(); refreshStats(); }
+    function onSepChange()       {
+      var raw = $('sampleRaw').textContent;
+      if (raw && raw !== '...' && raw !== '(ошибка)' && raw !== '(нет данных)')
+        updatePreview(raw);
+    }
+
+    function loadTextSample() {
+      var fn = ensureSketchUp('get_text_sample');
+      if (!fn) return;
+      var layerName = $('textLayerSelect').value;
+      if (!layerName) return;
+      $('sampleRaw').textContent = '...';
+      $('sampleResult').textContent = '';
+      $('sampleResult').className = '';
+
+      fn(layerName).then(function(sample) {
+        $('sampleRaw').textContent = sample || '(нет данных)';
+        if (sample) updatePreview(sample);
+      }).catch(function() {
+        $('sampleRaw').textContent = '(ошибка)';
+      });
+    }
+
     function updatePreview(rawText) {
-      if (!rawText || rawText === '...' || rawText === '(ошибка)' || rawText === '(нет данных)') return;
-      const sepEl = document.querySelector('input[name="sep"]:checked');
-      const sep = sepEl ? sepEl.value : '.';
-      const val = parseElevation(rawText, sep);
-      const box = $('sampleResult');
+      var sepEl = document.querySelector('input[name="sep"]:checked');
+      var sep   = sepEl ? sepEl.value : '.';
+      var val   = parseElevation(rawText, sep);
+      var box   = $('sampleResult');
       if (val !== null) {
         box.textContent = '→ ' + val.toFixed(3) + ' м';
         box.className = 'preview-ok';
@@ -229,7 +283,7 @@
     }
 
     function parseElevation(text, sep) {
-      text = String(text || '').trim();
+      text = String(text || '').trim().replace(/\s/g, '');
       var neg = false;
       if (text.charAt(0) === '+') text = text.slice(1);
       else if (text.charAt(0) === '-') { neg = true; text = text.slice(1); }
@@ -239,45 +293,43 @@
       return neg ? -val : val;
     }
 
-    function onLayerChange() { loadSample(); }
-    function onTextLayerChange() { loadSample(); }
-    function onSepChange() {
-      var raw = $('sampleRaw').textContent;
-      if (raw && raw !== '...' && raw !== '(ошибка)' && raw !== '(нажмите «Загрузить»)' && raw !== '(нет данных)')
-        updatePreview(raw);
-    }
+    // ── Create mesh ──────────────────────────────────────────────────────────
 
     function createTopoMesh() {
-      const fn = ensureSketchUp('create_topo_mesh');
-      if (!fn) { setInfo('SketchUp.create_topo_mesh недоступен', 'info-err'); return; }
+      var fn = ensureSketchUp('create_topo_mesh');
+      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
 
-      const arcLayerIdx  = parseInt($('arcLayerSelect').value,  10);
-      const textLayerIdx = parseInt($('textLayerSelect').value, 10);
-      const meshLayer    = parseInt($('meshLayerSelect').value, 10);
-      const radius       = parseFloat($('radius').value)        || 3000;
-      const sepEl        = document.querySelector('input[name="sep"]:checked');
-      const sep          = sepEl ? sepEl.value : '.';
+      var arcLayer  = $('arcLayerSelect').value;
+      var textLayer = $('textLayerSelect').value;
+      var radius    = parseFloat($('radius').value) || 5.0;
+      var units     = $('units').value;
+      var sepEl     = document.querySelector('input[name="sep"]:checked');
+      var sep       = sepEl ? sepEl.value : '.';
+      var meshLayer = $('meshLayerSelect').value;
+      var meshName  = $('meshName').value.trim() || 'TopoMesh';
 
-      if (isNaN(arcLayerIdx))  { setInfo('Выберите слой для дуг и полилиний', 'info-err'); return; }
-      if (isNaN(textLayerIdx)) { setInfo('Выберите слой с текстом отметок', 'info-err'); return; }
-      if (radius <= 0)         { setInfo('Радиус поиска должен быть > 0', 'info-err'); return; }
+      if (!arcLayer)    { setInfo('Выберите слой для точек/дуг',    'info-err'); return; }
+      if (!textLayer)   { setInfo('Выберите слой с текстом отметок', 'info-err'); return; }
+      if (radius <= 0)  { setInfo('Радиус поиска должен быть > 0',   'info-err'); return; }
 
-      const payload = JSON.stringify({
-        arcLayerIdx:  arcLayerIdx,
-        textLayerIdx: textLayerIdx,
-        radius:       radius,
-        separator:    sep,
-        mFactor:      1,
-        mmFactor:     1000,
-        meshName:     'TopoMesh',
-        meshLayer:    isNaN(meshLayer) ? 0 : meshLayer
+      var payload = JSON.stringify({
+        arcLayer:   arcLayer,
+        textLayer:  textLayer,
+        radius:     radius,
+        units:      units,
+        separator:  sep,
+        meshName:   meshName,
+        meshLayer:  meshLayer
       });
 
-      setInfo('Создание Mesh...');
+      setInfo('Создание Mesh…', '');
       $('btnCreate').disabled = true;
 
       fn(payload).then(function(ok) {
-        setInfo(ok ? 'Mesh создан успешно!' : 'Не удалось создать Mesh. Проверьте слой и параметры.', ok ? 'info-ok' : 'info-err');
+        setInfo(
+          ok ? 'Mesh создан успешно!' : 'Не удалось создать Mesh. Проверьте слои и параметры.',
+          ok ? 'info-ok' : 'info-err'
+        );
       }).catch(function(e) {
         setInfo('Ошибка: ' + e, 'info-err');
       }).finally(function() {
@@ -285,64 +337,149 @@
       });
     }
 
-    window.addEventListener('load', init);
+    // ── URL helper ───────────────────────────────────────────────────────────
+
+    function openUrl(url) {
+      var fn = ensureSketchUp('open_url');
+      if (fn) fn(url);
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    window.addEventListener('load', function() {
+      populateLayerDropdowns([]);
+      setInfo('Загрузите DXF файл для начала работы.', '');
+    });
   </script>
 </head>
 <body>
+
+  <!-- Header -->
   <div class="header-row">
     <div class="logo">
-      <img src="images/logo.svg" alt="DWG Mesh" title="DWG Mesh">
+      <img src="images/logo.svg" alt="DXF Mesh">
     </div>
-    <h1>Топо Mesh из DWG <span style="font-size:10px;color:#777;font-weight:normal">v1.1</span></h1>
+    <h1>DXF Topo Mesh <span style="font-size:10px;color:#777;font-weight:normal">v2.0</span></h1>
   </div>
 
+  <!-- DXF File Section -->
   <div class="section">
-    <div class="section-title">Источник</div>
+    <div class="section-title">DXF Файл</div>
     <div class="form-row">
-      <label for="arcLayerSelect">Слой для дуг и полилиний:</label>
-      <select id="arcLayerSelect" onchange="onLayerChange()"></select>
+      <label>Файл:</label>
+      <span id="dxfPathBox" class="preview-box" title="">(не выбран)</span>
     </div>
-    <div class="form-row">
-      <label for="textLayerSelect">Слой с текстом отметок:</label>
-      <select id="textLayerSelect" onchange="onTextLayerChange()"></select>
-    </div>
-    <div class="form-row">
-      <label for="radius">Радиус поиска текста (мм):</label>
-      <input type="number" id="radius" value="3000" min="1" step="100">
-    </div>
-    <button class="btn" onclick="loadSample()" style="margin-top:3px;">
-      Загрузить пример с слоя
+    <button class="btn" onclick="openDxfFile()" style="margin-top:3px;">
+      Выбрать DXF файл…
     </button>
+  </div>
+
+  <!-- Help: DWG → DXF conversion -->
+  <div class="section">
+    <details>
+      <summary>
+        <span class="section-title">Нет DXF? Как конвертировать DWG</span>
+        <span class="toggle-arrow">▾</span>
+      </summary>
+      <div class="help-body">
+
+        <div class="help-tool">
+          <strong>LibreCAD</strong> — бесплатно, Windows / macOS / Linux
+          <ol>
+            <li>Скачайте:
+              <a href="#" onclick="openUrl('https://librecad.org');return false;">librecad.org</a>
+            </li>
+            <li>Откройте DWG: <em>Файл → Открыть</em></li>
+            <li>Экспортируйте: <em>Файл → Экспорт → Экспорт как DXF</em></li>
+            <li>Выберите формат <strong>DXF R12</strong> или <strong>DXF 2000</strong></li>
+          </ol>
+        </div>
+
+        <div class="help-tool">
+          <strong>ODA File Converter</strong> — бесплатно, пакетная конвертация
+          <ol>
+            <li>Скачайте:
+              <a href="#" onclick="openUrl('https://www.opendesign.com/guestfiles/oda_file_converter');return false;">opendesign.com</a>
+            </li>
+            <li>Input folder: папка с DWG-файлами</li>
+            <li>Output format: <strong>DXF</strong>, версия R2010</li>
+            <li>Нажмите <strong>Start</strong></li>
+          </ol>
+        </div>
+
+        <div class="help-tool">
+          <strong>AutoCAD / nanoCAD / BricsCAD:</strong>
+          Файл → Сохранить как → тип файла <em>DXF</em>
+        </div>
+
+        <p class="help-note">Рекомендуется DXF R12 или R2010 для максимальной совместимости.</p>
+      </div>
+    </details>
   </div>
 
   <div class="divider"></div>
 
+  <!-- Layer Selection -->
   <div class="section">
-    <div class="section-title">Парсинг формата</div>
+    <div class="section-title">Слои DXF</div>
+    <div class="form-row">
+      <label for="arcLayerSelect">Слой точек / дуг:</label>
+      <select id="arcLayerSelect" onchange="onLayerChange()"></select>
+    </div>
+    <div class="form-row">
+      <label for="textLayerSelect">Слой отметок (текст):</label>
+      <select id="textLayerSelect" onchange="onTextLayerChange()"></select>
+    </div>
+    <div id="statsBox" style="font-size:11px;color:#555;margin-top:3px;min-height:15px;"></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Format preview -->
+  <div class="section">
+    <div class="section-title">Формат отметок</div>
     <div class="form-row">
       <label>Пример текста:</label>
-      <span id="sampleRaw" class="preview-box">(нажмите «Загрузить»)</span>
+      <span id="sampleRaw" class="preview-box">(загрузите DXF)</span>
     </div>
     <div class="form-row">
       <label>Разделитель:</label>
       <div class="sep-group">
-        <label><input type="radio" name="sep" value="." checked onchange="onSepChange()"> точка &nbsp;<code>14.200</code></label>
-        <label><input type="radio" name="sep" value="," onchange="onSepChange()"> запятая &nbsp;<code>14,200</code></label>
+        <label><input type="radio" name="sep" value="." checked onchange="onSepChange()">
+          точка &nbsp;<code>14.200</code></label>
+        <label><input type="radio" name="sep" value="," onchange="onSepChange()">
+          запятая &nbsp;<code>14,200</code></label>
       </div>
     </div>
     <div class="form-row">
       <label>Результат:</label>
-      <span id="sampleResult" style="flex:1; font-size:12px;"></span>
+      <span id="sampleResult" style="flex:1;font-size:12px;"></span>
     </div>
   </div>
 
   <div class="divider"></div>
 
+  <!-- Mesh parameters -->
   <div class="section">
     <div class="section-title">Параметры Mesh</div>
+
+    <div class="units-row">
+      <label for="radius">Радиус поиска:</label>
+      <input type="number" id="radius" value="5" min="0.001" step="0.5">
+      <select id="units" title="Единицы координат DXF">
+        <option value="м"  selected>м</option>
+        <option value="мм">мм</option>
+        <option value="см">см</option>
+      </select>
+    </div>
+
     <div class="form-row">
       <label for="meshLayerSelect">Слой для Mesh:</label>
       <select id="meshLayerSelect"></select>
+    </div>
+    <div class="form-row">
+      <label for="meshName">Имя группы:</label>
+      <input type="text" id="meshName" value="TopoMesh">
     </div>
   </div>
 
@@ -354,9 +491,7 @@
     </button>
   </div>
 
-  <div id="infoBox" class="info-box">
-    Выберите слои для дуг и текста, загрузите пример, проверьте парсинг и нажмите «Создать».
-  </div>
+  <div id="infoBox" class="info-box"></div>
 
 </body>
 </html>
