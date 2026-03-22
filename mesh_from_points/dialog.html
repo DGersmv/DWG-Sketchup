@@ -386,48 +386,12 @@
       });
 
       if (!isDxf) {
-        setInfo('Выделите компонент(ы) в модели и нажмите «Обновить».', '');
-        refreshSelection();
+        setInfo('Выделите компонент(ы) в модели и нажмите «Создать Topo Mesh».', '');
       } else {
         setInfo('Загрузите DXF файл для начала работы.', '');
       }
     }
 
-    // ── Selection info ───────────────────────────────────────────────────────
-
-    function refreshSelection() {
-      var fn = ensureSketchUp('get_selection_info');
-      if (!fn) { setInfo('SketchUp bridge недоступен — перезапустите SketchUp', 'info-err'); return; }
-      $('selectionList').textContent = 'Загрузка…';
-
-      // Таймаут: если колбэк не отвечает 5 сек — расширение не перезагружено
-      var timedOut = false;
-      var timer = setTimeout(function() {
-        timedOut = true;
-        $('selectionList').textContent = '(нет ответа)';
-        setInfo('Нет ответа от расширения. Выполните в Ruby Console:\nload File.join(Sketchup.find_support_file(\'Plugins\'), \'mesh_from_points\', \'main.rb\')\nзатем закройте и откройте диалог.', 'info-err');
-      }, 5000);
-
-      fn().then(function(jsonStr) {
-        if (timedOut) return;
-        clearTimeout(timer);
-        var result;
-        try { result = JSON.parse(jsonStr); } catch(e) {
-          setInfo('Ошибка парсинга ответа', 'info-err'); return;
-        }
-        if (result.error) { setInfo('Ошибка: ' + result.error, 'info-err'); return; }
-
-        var comps = result.components || [];
-        if (!comps.length) {
-          $('selectionList').textContent = '(нет выделенных компонентов)';
-          setInfo('Выделите компонент(ы) в модели SketchUp.', '');
-          return;
-        }
-        var lines = comps.map(function(c) { return '• ' + c.name; });
-        $('selectionList').textContent = lines.join('\n');
-        setInfo('Выделено компонентов: ' + comps.length + '. Нажмите «Создать Topo Mesh».', 'info-ok');
-      }).catch(function(e) { setInfo('Ошибка: ' + e, 'info-err'); });
-    }
 
     // ── Create dispatcher ────────────────────────────────────────────────────
 
@@ -494,22 +458,17 @@
 
 <div id="sectionModel" style="display:none;" class="section">
   <div class="section-title">Из выделения SketchUp</div>
-  <p style="font-size:11px;color:#555;margin:0 0 6px;">
-    Выделите компонент(ы) в модели, затем нажмите «Обновить».
-  </p>
-  <button class="btn" onclick="refreshSelection()" style="margin-bottom:6px;">
-    Обновить из выделения
-  </button>
-  <div id="selectionList" style="
-    min-height:32px;
-    padding:5px 7px;
-    border:1px solid #c0beb9;
-    background:#f9f8f6;
+  <div style="
+    padding:8px 9px;
+    background:#f4f2ee;
+    border:1px solid #d0cdc8;
     font-size:11px;
-    font-family:monospace;
+    line-height:1.7;
     color:#444;
-    white-space:pre-wrap;
-  ">(нет выделения)</div>
+  ">
+    1. Выделите компонент(ы) в модели SketchUp<br>
+    2. Нажмите <strong>«Создать Topo Mesh»</strong>
+  </div>
 </div>
 
 <div id="sectionDxf">

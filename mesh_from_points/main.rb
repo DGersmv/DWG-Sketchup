@@ -87,15 +87,6 @@ module MeshFromPoints
       UI.openURL(url.to_s) if url && !url.empty?
     end
 
-    # Return info about currently selected ComponentInstances (fast — no recursive count)
-    dlg.add_action_callback('get_selection_info') do |_ctx|
-      model = Sketchup.active_model
-      next ({ components: [] }).to_json unless model
-
-      comps = model.selection.grep(Sketchup::ComponentInstance)
-      result = comps.map { |ci| { name: ci.definition.name } }
-      ({ components: result }).to_json
-    end
 
     # Build mesh from edge vertices of currently selected ComponentInstance(s)
     dlg.add_action_callback('create_mesh_from_model') do |_ctx, json_str|
@@ -344,6 +335,11 @@ module MeshFromPoints
   end
 
   def self.show_dialog
+    # Always recreate dialog so callbacks are up to date
+    if @dialog
+      @dialog.close rescue nil
+      @dialog = nil
+    end
     dlg = dialog
     dlg.show if dlg
   end
