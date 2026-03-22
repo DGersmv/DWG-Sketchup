@@ -385,18 +385,32 @@
         lbl.classList.toggle('active', lbl.querySelector('input').checked);
       });
 
-      if (!isDxf) refreshSelection();
-      else setInfo('Загрузите DXF файл для начала работы.', '');
+      if (!isDxf) {
+        setInfo('Выделите компонент(ы) в модели и нажмите «Обновить».', '');
+        refreshSelection();
+      } else {
+        setInfo('Загрузите DXF файл для начала работы.', '');
+      }
     }
 
     // ── Selection info ───────────────────────────────────────────────────────
 
     function refreshSelection() {
       var fn = ensureSketchUp('get_selection_info');
-      if (!fn) { setInfo('SketchUp bridge недоступен', 'info-err'); return; }
+      if (!fn) { setInfo('SketchUp bridge недоступен — перезапустите SketchUp', 'info-err'); return; }
       $('selectionList').textContent = 'Загрузка…';
 
+      // Таймаут: если колбэк не отвечает 5 сек — расширение не перезагружено
+      var timedOut = false;
+      var timer = setTimeout(function() {
+        timedOut = true;
+        $('selectionList').textContent = '(нет ответа)';
+        setInfo('Нет ответа от расширения. Выполните в Ruby Console:\nload File.join(Sketchup.find_support_file(\'Plugins\'), \'mesh_from_points\', \'main.rb\')\nзатем закройте и откройте диалог.', 'info-err');
+      }, 5000);
+
       fn().then(function(jsonStr) {
+        if (timedOut) return;
+        clearTimeout(timer);
         var result;
         try { result = JSON.parse(jsonStr); } catch(e) {
           setInfo('Ошибка парсинга ответа', 'info-err'); return;
