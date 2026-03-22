@@ -423,12 +423,9 @@
           setInfo('Выделите компонент(ы) в модели SketchUp.', '');
           return;
         }
-        var lines = comps.map(function(c) {
-          return '• ' + c.name + '  —  рёбер: ' + c.edge_count;
-        });
+        var lines = comps.map(function(c) { return '• ' + c.name; });
         $('selectionList').textContent = lines.join('\n');
-        var totalEdges = comps.reduce(function(s, c) { return s + c.edge_count; }, 0);
-        setInfo('Выделено компонентов: ' + comps.length + '  |  Рёбер всего: ' + totalEdges, 'info-ok');
+        setInfo('Выделено компонентов: ' + comps.length + '. Нажмите «Создать Topo Mesh».', 'info-ok');
       }).catch(function(e) { setInfo('Ошибка: ' + e, 'info-err'); });
     }
 

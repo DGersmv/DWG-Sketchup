@@ -87,22 +87,14 @@ module MeshFromPoints
       UI.openURL(url.to_s) if url && !url.empty?
     end
 
-    # Return info about currently selected ComponentInstances
+    # Return info about currently selected ComponentInstances (fast — no recursive count)
     dlg.add_action_callback('get_selection_info') do |_ctx|
       model = Sketchup.active_model
       next ({ components: [] }).to_json unless model
 
-      begin
-        @edge_count_cache = {}
-        comps = model.selection.grep(Sketchup::ComponentInstance)
-        result = comps.map do |ci|
-          { name: ci.definition.name,
-            edge_count: count_edges_recursive(ci.definition) }
-        end
-        ({ components: result }).to_json
-      rescue => e
-        ({ error: e.message }).to_json
-      end
+      comps = model.selection.grep(Sketchup::ComponentInstance)
+      result = comps.map { |ci| { name: ci.definition.name } }
+      ({ components: result }).to_json
     end
 
     # Build mesh from edge vertices of currently selected ComponentInstance(s)
